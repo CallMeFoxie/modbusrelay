@@ -3,6 +3,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include <avr/eeprom.h>
 #include "lib/rs485.h"
 
 #define PIN_DETECT (1 << 1)
@@ -12,6 +13,8 @@
 #define PIN_LEDB (1 << 5)
 #define PIN_BTNA (1 << 6)
 #define PIN_BTNB (1 << 7)
+#define PINCTRL_BTNA PIN6CTRL
+#define PINCTRL_BTNB PIN7CTRL
 
 #define LIGHT_ON 1
 #define LIGHT_OFF 0
@@ -24,12 +27,10 @@
 
 #define IS_LIGHT_ON ((holding.reg_adcsum < (0x3FF-CURRENT_OFF_TOLERANCE)) || (holding.reg_adcsum > (0x3FF+CURRENT_OFF_TOLERANCE)))
 
-typedef struct holding_registers {
+volatile struct {
 	uint16_t reg_adcsum;
 	uint16_t reg_relay;
-} holding_registers_t;
-
-holding_registers_t holding;
+} holding;
 
 uint16_t adcresults[8];
 uint8_t adcmeasured = 0;
@@ -57,7 +58,6 @@ ISR(ADC0_RESRDY_vect) {
 }
 
 
-
 void set_relay(uint8_t which) {
 	PORTA.OUTCLR = PIN_RELS | PIN_RELR;
 	_delay_ms(10);
@@ -72,7 +72,7 @@ void toggle_relay() {
 		unsigned char wasLightOn = IS_LIGHT_ON;
 		set_relay(PIN_RELR);
 		_delay_ms(100);
-		if(wasLightOn == IS_LIGHT_ON) { // we did not toggle anything
+		if (wasLightOn == IS_LIGHT_ON) { // we did not toggle anything
 			set_relay(PIN_RELS);
 		}
 	} else {
@@ -105,18 +105,17 @@ int main(void)
 	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
 	PORTA.DIRCLR = PIN_BTNA | PIN_BTNB;
 	//PORTA.OUTSET = PIN_BTNA | PIN_BTNB; // enable pullups
-	PORTA.PIN6CTRL = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
-	PORTA.PIN7CTRL = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
+	PORTA.PINCTRL_BTNA = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
+	PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
 
-	
+	// read bus address from eeprom
+	uint16_t rs485_address = eeprom_read_word(0);
+ 
 	// init other stuff
-    init_rs485(2);
-	
-	// init LED ports & relay ports
-	
+    init_rs485(rs485_address);	
 	
 	// init ADC
-	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
+	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc;
 	ADC0.CTRLD = ADC_ASDV_ASVON_gc;
 	ADC0.MUXPOS = ADC_MUXPOS_AIN1_gc;
 	ADC0.INTCTRL = ADC_RESRDY_bm;
@@ -126,7 +125,7 @@ int main(void)
 	sei();
 	
 	// measure for a while to see whether light is currently on
-	//while(adcmeasured != 7);
+	while(adcmeasured != 7);
 	
     /*while (1) 
     {
