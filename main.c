@@ -105,8 +105,8 @@ int main(void)
 	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
 	PORTA.DIRCLR = PIN_BTNA | PIN_BTNB;
 	//PORTA.OUTSET = PIN_BTNA | PIN_BTNB; // enable pullups
-	PORTA.PIN6CTRL = (1 << 7) | (1 << 3) | (3 << 0); // enable pullup + sense falling edge
-	PORTA.PIN7CTRL = (1 << 7) | (1 << 3) | (3 << 0);
+	PORTA.PIN6CTRL = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
+	PORTA.PIN7CTRL = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
 
 	
 	// init other stuff
