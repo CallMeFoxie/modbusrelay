@@ -34,7 +34,7 @@ holding_registers_t holding;
 uint16_t adcresults[8];
 uint8_t adcmeasured = 0;
 
-struct {
+volatile struct {
 	unsigned char light_status : 1;
 	unsigned char relay_last_toggle : 2;
 } node_state;
@@ -48,7 +48,15 @@ ISR(ADC0_RESRDY_vect) {
 		holding.reg_adcsum += adcresults[i];
 	}
 	holding.reg_adcsum /= 8;
+
+	if (IS_LIGHT_ON) {
+		node_state.light_status = LIGHT_ON;
+	} else {
+		node_state.light_status = LIGHT_OFF;
+	}
 }
+
+
 
 void set_relay(uint8_t which) {
 	PORTA.OUTCLR = PIN_RELS | PIN_RELR;
@@ -76,6 +84,17 @@ void toggle_relay() {
 	}
 }
 
+ISR(PORTA_PORT_vect) {
+	// soft debounce
+	_delay_ms(10);
+	if (PORTA.INTFLAGS & PIN_BTNA) {
+		toggle_relay();
+	}
+	_delay_ms(10);
+
+	PORTA.INTFLAGS = 0xFF;
+}
+
 int main(void)
 {
 	// init clock. 20MHz ought to do it
@@ -83,12 +102,18 @@ int main(void)
 	CLKCTRL.MCLKCTRLA = 0x00;
 	CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLB = 0x00;
+	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
+	PORTA.DIRCLR = PIN_BTNA | PIN_BTNB;
+	//PORTA.OUTSET = PIN_BTNA | PIN_BTNB; // enable pullups
+	PORTA.PIN6CTRL = (1 << 7) | (1 << 3) | (3 << 0); // enable pullup + sense falling edge
+	PORTA.PIN7CTRL = (1 << 7) | (1 << 3) | (3 << 0);
+
 	
 	// init other stuff
     init_rs485(2);
 	
 	// init LED ports & relay ports
-	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
+	
 	
 	// init ADC
 	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
@@ -97,20 +122,15 @@ int main(void)
 	ADC0.INTCTRL = ADC_RESRDY_bm;
 	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;
 	ADC0.COMMAND = ADC_STCONV_bm;
-	
+
 	sei();
 	
 	// measure for a while to see whether light is currently on
-	while(adcmeasured != 7);
-	if (IS_LIGHT_ON) {
-		node_state.light_status = LIGHT_ON;
-	} else {
-		node_state.light_status = LIGHT_OFF;
-	}
+	//while(adcmeasured != 7);
 	
-    while (1) 
+    /*while (1) 
     {
-		unsigned char *msg = get_message_if_ready();
+		/*unsigned char *msg = get_message_if_ready();
 		if(msg != 0) {
 			uint16_t a = get_modbus_a(msg);
 			uint16_t b = get_modbus_b(msg);
@@ -134,21 +154,35 @@ int main(void)
 					reply[5] = holding.reg_relay & 0xFF;
 					reply[6] = holding.reg_relay >> 8;
 					send_reply(reply, 9);
-					break;
+				
+				}	break;
 			}
-			
-			if(node_state.light_status) {
-				PORTA.OUTSET = PIN_LEDA;
-			} else {
-				PORTA.OUTCLR = PIN_LEDA;
-			}
-			
-			if(node_state.relay_last_toggle == RELAY_LAST_SET) {
-				PORTA.OUTSET = PIN_LEDB;
-			} else {
-				PORTA.OUTCLR = PIN_LEDB;
-			}
+		
+		if(node_state.light_status) {
+			PORTA.OUTSET = PIN_LEDA;
+		} else {
+			PORTA.OUTCLR = PIN_LEDA;
 		}
-    }
+		
+		if(node_state.relay_last_toggle == RELAY_LAST_SET || node_state.relay_last_toggle == RELAY_LAST_UNKNOWN) {
+			PORTA.OUTSET = PIN_LEDB;
+		} else {
+			PORTA.OUTCLR = PIN_LEDB;
+		}
+	}*/
+
+	while(1) {
+		if (node_state.relay_last_toggle == RELAY_LAST_RESET) {
+			PORTA.OUTCLR = PIN_LEDA;
+		} else if (node_state.relay_last_toggle == RELAY_LAST_SET) {
+			PORTA.OUTSET = PIN_LEDA;
+		}
+
+		if (node_state.light_status == LIGHT_ON) {
+			PORTA.OUTSET = PIN_LEDB;
+		} else {
+			PORTA.OUTCLR = PIN_LEDB;
+		}
+	}
 }
 

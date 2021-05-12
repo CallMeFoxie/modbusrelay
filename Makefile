@@ -1,6 +1,9 @@
 CC=avr-gcc
 OBJCOPY=avr-objcopy
 CFLAGS=-Os -DF_CPU=20000000UL -mmcu=attiny414 -D__AVR_DEV_LIB_NAME__=tn414
+ifneq ($(origin PACK_PATH),undefined)
+	CFLAGS+=-B $(PACK_PATH)
+endif
 
 .PHONY: flash.hex
 
@@ -17,6 +20,15 @@ app.elf: lib/uart.o lib/rs485.o main.o
 
 flash.hex: app.elf
 	$(OBJCOPY) -O ihex app.elf flash.hex
+
+do-flash: flash.hex
+	pyupdi -d attiny414 -c $(PORT) -f flash.hex
+
+do-erase:
+	pyupdi -d attiny414 -c $(PORT) -e
+
+do-reset:
+	pyupdi -d attiny414 -c $(PORT) -r
 
 clean:
 	rm -rf lib/*.o *.o *.elf *.hex
