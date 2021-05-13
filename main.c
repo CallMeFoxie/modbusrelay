@@ -1,5 +1,3 @@
-#define F_CPU 20000000UL
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -23,32 +21,21 @@
 #define RELAY_LAST_RESET 0
 #define RELAY_LAST_UNKNOWN 2
 
-#define CURRENT_OFF_TOLERANCE 0x10
+#define CURRENT_OFF_TOLERANCE 0x60
 
-#define IS_LIGHT_ON ((holding.reg_adcsum < (0x3FF-CURRENT_OFF_TOLERANCE)) || (holding.reg_adcsum > (0x3FF+CURRENT_OFF_TOLERANCE)))
+#define IS_LIGHT_ON ((adcmeasured < (0x3FF-CURRENT_OFF_TOLERANCE)) || (adcmeasured > (0x3FF+CURRENT_OFF_TOLERANCE))) && adcmeasured > CURRENT_OFF_TOLERANCE
 
-volatile struct {
-	uint16_t reg_adcsum;
-	uint16_t reg_relay;
-} holding;
-
-uint16_t adcresults[8];
-uint8_t adcmeasured = 0;
+uint16_t adcmeasured = 0;
 
 volatile struct {
 	unsigned char light_status : 1;
 	unsigned char relay_last_toggle : 2;
+	unsigned char first_button_ignore : 1;
 } node_state;
 
 ISR(ADC0_RESRDY_vect) {
-	adcresults[adcmeasured] = ADC0.RES;
 	ADC0.INTFLAGS |= ADC_RESRDY_bm;
-	adcmeasured = (adcmeasured + 1) % 8;
-	holding.reg_adcsum = 0;
-	for(uint8_t i = 0; i < 8; i++) {
-		holding.reg_adcsum += adcresults[i];
-	}
-	holding.reg_adcsum /= 8;
+	adcmeasured = ADC0.RES / 8 ;
 
 	if (IS_LIGHT_ON) {
 		node_state.light_status = LIGHT_ON;
@@ -87,12 +74,13 @@ void toggle_relay() {
 ISR(PORTA_PORT_vect) {
 	// soft debounce
 	_delay_ms(10);
-	if (PORTA.INTFLAGS & PIN_BTNA) {
+	if (PORTA.INTFLAGS & PIN_BTNA && node_state.first_button_ignore == 1) {
 		toggle_relay();
 	}
-	_delay_ms(10);
 
 	PORTA.INTFLAGS = 0xFF;
+
+	node_state.first_button_ignore = 1;
 }
 
 int main(void)
@@ -110,26 +98,24 @@ int main(void)
 
 	// read bus address from eeprom
 	uint16_t rs485_address = eeprom_read_word(0);
+	node_state.first_button_ignore = 0;
  
 	// init other stuff
     init_rs485(rs485_address);	
 	
 	// init ADC
-	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV16_gc;
+	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;
+	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
 	ADC0.CTRLD = ADC_ASDV_ASVON_gc;
 	ADC0.MUXPOS = ADC_MUXPOS_AIN1_gc;
 	ADC0.INTCTRL = ADC_RESRDY_bm;
-	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;
+	
 	ADC0.COMMAND = ADC_STCONV_bm;
 
 	sei();
-	
-	// measure for a while to see whether light is currently on
-	while(adcmeasured != 7);
-	
-    /*while (1) 
-    {
-		/*unsigned char *msg = get_message_if_ready();
+
+	while(1) {
+		unsigned char *msg = get_message_if_ready();
 		if(msg != 0) {
 			uint16_t a = get_modbus_a(msg);
 			uint16_t b = get_modbus_b(msg);
@@ -139,38 +125,26 @@ int main(void)
 				case WRITE_SINGLE_REGISTER:
 					switch(a) {
 						case 1:
-							holding.reg_relay = b;
-							// TODO toggle relay if needed
+							if (IS_LIGHT_ON && !b) {
+								toggle_relay();
+							} else if (!(IS_LIGHT_ON) && b) {
+								toggle_relay();
+							}
 							break;
 					}
 					break;
 				case READ_HOLDING_REGISTERS: ;
 					unsigned char reply[9]; // addr + func + bytes + 2x16bit data + crc16
 					reply[1] = READ_HOLDING_REGISTERS;
-					reply[2] = 2;
-					reply[3] = holding.reg_adcsum & 0xFF;
-					reply[4] = holding.reg_adcsum >> 8;
-					reply[5] = holding.reg_relay & 0xFF;
-					reply[6] = holding.reg_relay >> 8;
-					send_reply(reply, 9);
+					reply[2] = 1;
+					reply[3] = adcmeasured & 0xFF;
+					reply[4] = adcmeasured >> 8;
+					send_reply(reply, 7);
 				
-				}	break;
+					break;
 			}
-		
-		if(node_state.light_status) {
-			PORTA.OUTSET = PIN_LEDA;
-		} else {
-			PORTA.OUTCLR = PIN_LEDA;
 		}
-		
-		if(node_state.relay_last_toggle == RELAY_LAST_SET || node_state.relay_last_toggle == RELAY_LAST_UNKNOWN) {
-			PORTA.OUTSET = PIN_LEDB;
-		} else {
-			PORTA.OUTCLR = PIN_LEDB;
-		}
-	}*/
 
-	while(1) {
 		if (node_state.relay_last_toggle == RELAY_LAST_RESET) {
 			PORTA.OUTCLR = PIN_LEDA;
 		} else if (node_state.relay_last_toggle == RELAY_LAST_SET) {
