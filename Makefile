@@ -16,6 +16,9 @@ lib/uart.o: lib/uart.c
 lib/rs485.o: lib/rs485.c
 	$(CC) -C -o lib/rs485.o -c lib/rs485.c $(CFLAGS)
 
+main.o: main.c
+	$(CC) -C -o main.o -c main.c $(CFLAGS)
+
 app.elf: lib/uart.o lib/rs485.o main.o
 	$(CC) -o app.elf lib/uart.o lib/rs485.o main.o $(LDFLAGS)
 	avr-size  --format=avr app.elf
