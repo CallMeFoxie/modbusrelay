@@ -14,6 +14,8 @@ void send_char(unsigned char);
 void send_message(unsigned char*, uint8_t);
 unsigned char receive_char();
 unsigned char *receive_message();
+void send_uint16(uint16_t num);
+void send_uint8(uint8_t num);
 bool is_char_ready();
 
 

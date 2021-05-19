@@ -19,6 +19,7 @@ enum MODBUS_FUNCTION {
 void init_rs485(uint8_t address);
 unsigned char *get_message_if_ready();
 void send_reply(unsigned char* data, uint8_t length);
+uint8_t get_modbus_message_type(unsigned char* data);
 uint16_t get_modbus_a(unsigned char* data);
 uint16_t get_modbus_b(unsigned char* data);
 

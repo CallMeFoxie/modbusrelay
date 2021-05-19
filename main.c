@@ -3,6 +3,7 @@
 #include <util/delay.h>
 #include <avr/eeprom.h>
 #include "lib/rs485.h"
+#include "lib/uart.h"
 
 #define PIN_DETECT (1 << 1)
 #define PIN_RELS (1 << 2)
@@ -21,9 +22,9 @@
 #define RELAY_LAST_RESET 0
 #define RELAY_LAST_UNKNOWN 2
 
-#define CURRENT_OFF_TOLERANCE 0x60
+#define CURRENT_OFF_TOLERANCE 0x10
 
-#define IS_LIGHT_ON ((adcmeasured < (0x3FF-CURRENT_OFF_TOLERANCE)) || (adcmeasured > (0x3FF+CURRENT_OFF_TOLERANCE))) && adcmeasured > CURRENT_OFF_TOLERANCE
+#define IS_LIGHT_ON ((adcmeasured < (0x200-CURRENT_OFF_TOLERANCE)) || (adcmeasured > (0x200+CURRENT_OFF_TOLERANCE))) && adcmeasured > CURRENT_OFF_TOLERANCE
 
 uint16_t adcmeasured = 0;
 
@@ -99,12 +100,14 @@ int main(void)
 	// read bus address from eeprom
 	uint16_t rs485_address = eeprom_read_word(0);
 	node_state.first_button_ignore = 0;
+	node_state.relay_last_toggle = RELAY_LAST_UNKNOWN;
  
 	// init other stuff
     init_rs485(rs485_address);	
 	
 	// init ADC
 	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;
+	ADC0.CTRLB = (3 << 0); // ACC8
 	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
 	ADC0.CTRLD = ADC_ASDV_ASVON_gc;
 	ADC0.MUXPOS = ADC_MUXPOS_AIN1_gc;
@@ -119,28 +122,36 @@ int main(void)
 		if(msg != 0) {
 			uint16_t a = get_modbus_a(msg);
 			uint16_t b = get_modbus_b(msg);
+			unsigned char reply[9]; // addr + func + bytes + 16bit data + crc16
+			reply[1] = msg[1];
 			switch(msg[1]) {
 				case READ_INPUT_REGISTERS:
 					break;
 				case WRITE_SINGLE_REGISTER:
-					switch(a) {
-						case 1:
-							if (IS_LIGHT_ON && !b) {
-								toggle_relay();
-							} else if (!(IS_LIGHT_ON) && b) {
-								toggle_relay();
-							}
-							break;
-					}
+					if (b && !IS_LIGHT_ON)
+						toggle_relay();
+					else if (!b && IS_LIGHT_ON)
+						toggle_relay();
+
+					reply[2] = a >> 8;
+					reply[3] = a & 0xFF;
+					reply[4] = b >> 8;
+					reply[5] = b & 0xFF;
+					send_reply(reply, 8);
 					break;
 				case READ_HOLDING_REGISTERS: ;
-					unsigned char reply[9]; // addr + func + bytes + 2x16bit data + crc16
-					reply[1] = READ_HOLDING_REGISTERS;
-					reply[2] = 1;
-					reply[3] = adcmeasured & 0xFF;
-					reply[4] = adcmeasured >> 8;
-					send_reply(reply, 7);
-				
+					reply[2] = 4;
+					reply[4] = adcmeasured & 0xFF;
+					reply[3] = adcmeasured >> 8;
+					reply[6] = IS_LIGHT_ON;
+					reply[5] = 0;
+					send_reply(reply, 9);
+					break;
+				default: ;
+					reply[2] = 0xaa;
+					reply[3] = 0x55;
+					reply[4] = 0xaa;
+					send_reply(reply, 8);
 					break;
 			}
 		}

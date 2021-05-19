@@ -22,3 +22,30 @@ void send_message(unsigned char* message, uint8_t length) {
 		USART0.TXDATAL = *message++;
 	}
 }
+
+void send_char(unsigned char data) {
+	while(!(USART0.STATUS & USART_DREIF_bm));
+	USART0.TXDATAL = data;
+}
+
+
+void send_nibble(uint8_t nibble) {
+	if (nibble < 0x0A)
+	nibble += '0';
+	else
+	nibble += 'A' - 0x0A;
+	
+	send_char(nibble);
+}
+
+void send_uint16(uint16_t num) {
+	send_nibble((num >> 12) & 0xF);
+	send_nibble((num >> 8) & 0xF);
+	send_nibble((num >> 4) & 0xF);
+	send_nibble(num & 0xF);
+}
+
+void send_uint8(uint8_t num) {
+	send_nibble((num >> 4) & 0x0F);
+	send_nibble(num & 0x0F);
+}
