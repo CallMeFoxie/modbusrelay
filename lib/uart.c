@@ -24,8 +24,7 @@ void send_message(unsigned char* message, uint8_t length) {
 }
 
 void send_char(unsigned char data) {
-	while(!(USART0.STATUS & USART_DREIF_bm));
-	USART0.TXDATAL = data;
+	send_message(&data, 1)
 }
 
 
