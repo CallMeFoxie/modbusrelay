@@ -2,18 +2,10 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include <avr/eeprom.h>
+#include <string.h>
 #include "lib/rs485.h"
 #include "lib/uart.h"
-
-#define PIN_DETECT (1 << 1)
-#define PIN_RELS (1 << 2)
-#define PIN_RELR (1 << 3)
-#define PIN_LEDA (1 << 4)
-#define PIN_LEDB (1 << 5)
-#define PIN_BTNA (1 << 6)
-#define PIN_BTNB (1 << 7)
-#define PINCTRL_BTNA PIN6CTRL
-#define PINCTRL_BTNB PIN7CTRL
+#include "board.h"
 
 #define LIGHT_ON 1
 #define LIGHT_OFF 0
@@ -22,45 +14,43 @@
 #define RELAY_LAST_RESET 0
 #define RELAY_LAST_UNKNOWN 2
 
-#define CURRENT_OFF_TOLERANCE 0x10
-
-#define IS_LIGHT_ON ((adcmeasured < (0x200-CURRENT_OFF_TOLERANCE)) || (adcmeasured > (0x200+CURRENT_OFF_TOLERANCE))) && adcmeasured > CURRENT_OFF_TOLERANCE
-
-uint16_t adcmeasured = 0;
+uint8_t is_light_on(uint16_t adcval) {
+	return adcval < (0x200-CURRENT_OFF_TOLERANCE) || (adcval > (0x200 + CURRENT_OFF_TOLERANCE));
+}
 
 volatile struct {
-	unsigned char light_status : 1;
 	unsigned char relay_last_toggle : 2;
 	unsigned char first_button_ignore : 1;
 } node_state;
 
 ISR(ADC0_RESRDY_vect) {
 	ADC0.INTFLAGS |= ADC_RESRDY_bm;
-	adcmeasured = ADC0.RES / 8 ;
+	uint16_t adcval = ADC0.RES / 8;
+	write_holding_register_int(REGISTER_ADC, adcval);
 
-	if (IS_LIGHT_ON) {
-		node_state.light_status = LIGHT_ON;
+	if (is_light_on(adcval)) {
+		write_holding_register_int(REGISTER_ISLIGHTON, LIGHT_ON);
 	} else {
-		node_state.light_status = LIGHT_OFF;
+		write_holding_register_int(REGISTER_ISLIGHTON, LIGHT_OFF);
 	}
 }
 
 
 void set_relay(uint8_t which) {
 	PORTA.OUTCLR = PIN_RELS | PIN_RELR;
-	_delay_ms(10);
+	_delay_ms(30);
 	PORTA.OUTSET = which;
 	node_state.relay_last_toggle = which == PIN_RELR ? RELAY_LAST_RESET : RELAY_LAST_SET;
-	_delay_ms(10);
+	_delay_ms(30);
 	PORTA.OUTCLR = which;
 }
 
 void toggle_relay() {
 	if (node_state.relay_last_toggle == RELAY_LAST_UNKNOWN) {
-		unsigned char wasLightOn = IS_LIGHT_ON;
+		unsigned char wasLightOn = read_holding_register_int(REGISTER_ISLIGHTON);
 		set_relay(PIN_RELR);
 		_delay_ms(100);
-		if (wasLightOn == IS_LIGHT_ON) { // we did not toggle anything
+		if (wasLightOn == read_holding_register_int(REGISTER_ISLIGHTON)) { // we did not toggle anything
 			set_relay(PIN_RELS);
 		}
 	} else {
@@ -84,6 +74,16 @@ ISR(PORTA_PORT_vect) {
 	node_state.first_button_ignore = 1;
 }
 
+uint8_t process_write_holding_register(volatile uint16_t holding_register[], uint16_t reg, uint16_t newValue) {
+	if (reg == 1) {
+		if (newValue != holding_register[REGISTER_ISLIGHTON]) {
+			toggle_relay();
+		}
+		return NO_ERROR;
+	}
+	return ILLEGAL_DATA_ADDRESS;
+}
+
 int main(void)
 {
 	// init clock. 20MHz ought to do it
@@ -93,7 +93,7 @@ int main(void)
 	CLKCTRL.MCLKCTRLB = 0x00;
 	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
 	PORTA.DIRCLR = PIN_BTNA | PIN_BTNB;
-	//PORTA.OUTSET = PIN_BTNA | PIN_BTNB; // enable pullups
+
 	PORTA.PINCTRL_BTNA = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
 	PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
 
@@ -103,11 +103,11 @@ int main(void)
 	node_state.relay_last_toggle = RELAY_LAST_UNKNOWN;
  
 	// init other stuff
-    init_rs485(rs485_address);	
+	init_rs485(rs485_address, &process_write_holding_register);	
 	
 	// init ADC
 	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;
-	ADC0.CTRLB = (3 << 0); // ACC8
+	ADC0.CTRLB = ADC_SAMPNUM_ACC8_gc;
 	ADC0.CTRLC = ADC_SAMPCAP_bm | ADC_REFSEL_VDDREF_gc | ADC_PRESC_DIV256_gc;
 	ADC0.CTRLD = ADC_ASDV_ASVON_gc;
 	ADC0.MUXPOS = ADC_MUXPOS_AIN1_gc;
@@ -118,43 +118,8 @@ int main(void)
 	sei();
 
 	while(1) {
-		unsigned char *msg = get_message_if_ready();
-		if(msg != 0) {
-			uint16_t a = get_modbus_a(msg);
-			uint16_t b = get_modbus_b(msg);
-			unsigned char reply[9]; // addr + func + bytes + 16bit data + crc16
-			reply[1] = msg[1];
-			switch(msg[1]) {
-				case READ_INPUT_REGISTERS:
-					break;
-				case WRITE_SINGLE_REGISTER:
-					if (b && !IS_LIGHT_ON)
-						toggle_relay();
-					else if (!b && IS_LIGHT_ON)
-						toggle_relay();
 
-					reply[2] = a >> 8;
-					reply[3] = a & 0xFF;
-					reply[4] = b >> 8;
-					reply[5] = b & 0xFF;
-					send_reply(reply, 8);
-					break;
-				case READ_HOLDING_REGISTERS: ;
-					reply[2] = 4;
-					reply[4] = adcmeasured & 0xFF;
-					reply[3] = adcmeasured >> 8;
-					reply[6] = IS_LIGHT_ON;
-					reply[5] = 0;
-					send_reply(reply, 9);
-					break;
-				default: ;
-					reply[2] = 0xaa;
-					reply[3] = 0x55;
-					reply[4] = 0xaa;
-					send_reply(reply, 8);
-					break;
-			}
-		}
+		do_act();
 
 		if (node_state.relay_last_toggle == RELAY_LAST_RESET) {
 			PORTA.OUTCLR = PIN_LEDA;
@@ -162,7 +127,7 @@ int main(void)
 			PORTA.OUTSET = PIN_LEDA;
 		}
 
-		if (node_state.light_status == LIGHT_ON) {
+		if (read_holding_register_int(REGISTER_ISLIGHTON) == LIGHT_ON) {
 			PORTA.OUTSET = PIN_LEDB;
 		} else {
 			PORTA.OUTCLR = PIN_LEDB;

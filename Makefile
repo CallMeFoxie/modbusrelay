@@ -1,6 +1,6 @@
 CC=avr-gcc
 OBJCOPY=avr-objcopy
-CFLAGS=-Os -DF_CPU=20000000UL -mmcu=attiny414 -D__AVR_DEV_LIB_NAME__=tn414 -fdata-sections -ffunction-sections
+CFLAGS=-Os -DF_CPU=20000000UL -mmcu=attiny414 -D__AVR_DEV_LIB_NAME__=tn414 -fdata-sections -ffunction-sections -Werror
 LDFLAGS=-Os -mmcu=attiny414 -Wl,--gc-sections
 ifneq ($(origin PACK_PATH),undefined)
 	CFLAGS+=-B $(PACK_PATH)
@@ -10,13 +10,13 @@ endif
 
 default: app.elf
 
-lib/uart.o: lib/uart.c
+lib/uart.o: lib/uart.c lib/uart.c
 	$(CC) -C -o lib/uart.o -c lib/uart.c $(CFLAGS)
 
-lib/rs485.o: lib/rs485.c
+lib/rs485.o: lib/rs485.c lib/rs485.h lib/uart.h board.h
 	$(CC) -C -o lib/rs485.o -c lib/rs485.c $(CFLAGS)
 
-main.o: main.c
+main.o: main.c lib/rs485.h lib/uart.h board.h
 	$(CC) -C -o main.o -c main.c $(CFLAGS)
 
 app.elf: lib/uart.o lib/rs485.o main.o
