@@ -28,9 +28,28 @@ enum MODBUS_EXCEPTIONS {
 	GATEWAY_DEVICE_FAILED_TO_RESPOND = 0x0B
 };
 
+enum MODBUS_DIAGNOSTICS {
+	RETURN_QUERY_DATA = 0x00,
+	RESTART_COMMUNICATION_OPTIONS,
+	RETURN_DIAGNOSTIC_REGISTER,
+	CHANGE_ASCII_INPUT_DELIMITER,
+	FORCE_LISTEN_ONLY_MODE,
+	CLEAR_COUNTERS_AND_DIAGNOSTIC_REGISTER = 0x0A,
+	RETURN_BUS_MESSAGE_COUNT,
+	RETURN_BUS_COMMUNICATION_ERROR_COUNT,
+	RETURN_BUS_COMMUNICATION_EXCEPTION_COUNT,
+	RETURN_SERVER_MESSAGE_COUNT,
+	RETURN_SERVER_NAK_COUNT,
+	RETURN_SERVER_BUSY_COUNT,
+	RETURN_BUS_CHARACTER_OVERRUN_COUNT,
+	CLEAR_OVERRUN_COUNTER_AND_FLAG = 0x14,
+	// custom message goes here
+	SET_DEVICE_ADDRESS = 0x99
+};
+
 #define MODBUS_MAX_MSG_LENGTH 8
 
-void init_rs485(uint8_t address, uint8_t (*write_holding_register_func)(volatile uint16_t[], uint16_t, uint16_t));
+void init_rs485(uint8_t (*write_holding_register_func)(volatile uint16_t[], uint16_t, uint16_t));
 unsigned char *get_message_if_ready();
 void send_reply(unsigned char* data, uint8_t length);
 uint8_t get_modbus_message_type(unsigned char* data);

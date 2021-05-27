@@ -98,12 +98,12 @@ int main(void)
 	PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
 
 	// read bus address from eeprom
-	uint16_t rs485_address = eeprom_read_word(0);
+	
 	node_state.first_button_ignore = 0;
 	node_state.relay_last_toggle = RELAY_LAST_UNKNOWN;
  
 	// init other stuff
-	init_rs485(rs485_address, &process_write_holding_register);	
+	init_rs485(&process_write_holding_register);	
 	
 	// init ADC
 	ADC0.CTRLA = ADC_FREERUN_bm | ADC_ENABLE_bm;

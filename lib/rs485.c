@@ -1,5 +1,6 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <string.h>
 #include "rs485.h"
 #include "uart.h"
@@ -16,11 +17,28 @@ volatile uint16_t holding_registers[REGISTER_COUNT];
 unsigned char lastModbusMessage[MODBUS_MAX_MSG_LENGTH];
 unsigned char receivingModbusMessage[MODBUS_MAX_MSG_LENGTH];
 
+volatile struct {
+#ifdef DIAGNOSTICS_LISTEN_ONLY_MODE	
+	unsigned char listen_only : 1;
+#endif
+	unsigned char allow_addr_change : 1;
+} rs485_state;
+
+#ifdef DIAGNOSTICS_STATISTICS
+uint16_t bus_message_count, bus_exception_error_count, server_message_count;
+#endif
+
 ISR(TCA0_CMP0_vect) {
-	if (modbusReceivingOffset == MODBUS_MAX_MSG_LENGTH && receivingModbusMessage[0] == localModbusAddress) {
+	if (/*modbusReceivingOffset == MODBUS_MAX_MSG_LENGTH &&*/ receivingModbusMessage[0] == localModbusAddress) {
+#ifdef DIAGNOSTICS_STATISTICS
+		server_message_count++;
+#endif
 		memcpy(lastModbusMessage, receivingModbusMessage, MODBUS_MAX_MSG_LENGTH);
 		messageRead = 0;
 	}
+#ifdef DIAGNOSTICS_STATISTICS
+	bus_message_count++;
+#endif
 	modbusReceivingOffset = 0;
 	TCA0.SINGLE.INTFLAGS |= (1 << 4); // reset int flag
 	TCA0.SINGLE.CTRLESET = TCA_SINGLE_CMD_RESTART_gc;
@@ -56,8 +74,8 @@ uint16_t doModbusCRC16(unsigned char* data, uint8_t length) {
 	return crc;
 }
 
-void init_rs485(uint8_t address, uint8_t (*write_holding_register_func)(volatile uint16_t[], uint16_t, uint16_t)) {
-	localModbusAddress = address;
+void init_rs485(uint8_t (*write_holding_register_func)(volatile uint16_t[], uint16_t, uint16_t)) {
+	localModbusAddress = eeprom_read_word(EEPROM_ADDRESS_RS485_SLAVEID);
 	TCA0.SINGLE.CTRLA = TCA_SINGLE_ENABLE_bm | TCA_SINGLE_CLKSEL_DIV256_gc;
 	TCA0.SINGLE.CMP0 = 300;
 	TCA0.SINGLE.INTCTRL = (1 << 4); // enable OVF
@@ -120,6 +138,46 @@ void do_act() {
 					send_reply(reply, length);
 				}
 				break;
+			case DIAGNOSTICS: ;
+				// sub-function = a
+				switch(msg[2]) {
+#ifdef DIAGNOSTICS_SET_ADDRESS
+					case SET_DEVICE_ADDRESS: ;
+						if (rs485_state.allow_addr_change) {
+							eeprom_write_byte(EEPROM_ADDRESS_RS485_SLAVEID, b & 0xFF);
+							send_reply(msg, 7);
+							localModbusAddress = b & 0xFF;
+							rs485_state.allow_addr_change = 0;
+						}
+						break;
+#endif
+#ifdef DIAGNOSTICS_LISTEN_ONLY_MODE
+					case FORCE_LISTEN_ONLY_MODE: ;
+						rs485_state.listen_only = 1;
+						break;
+#endif
+#ifdef DIAGNOSTICS_STATISTICS
+					case RETURN_BUS_COMMUNICATION_EXCEPTION_COUNT: ;
+						reply[2] = msg[2];
+						reply[3] = bus_exception_error_count & 0xFF;
+						reply[4] = bus_exception_error_count >> 8;
+						send_reply(reply, 7);
+						break;
+					case RETURN_BUS_MESSAGE_COUNT: ;
+						reply[2] = msg[2];
+						reply[3] = bus_message_count & 0xFF;
+						reply[4] = bus_message_count >> 8;
+						send_reply(reply, 7);
+						break;
+					case RETURN_SERVER_MESSAGE_COUNT: ;
+						reply[2] = msg[2];
+						reply[3] = server_message_count & 0xFF;
+						reply[4] = server_message_count >> 8;
+						send_reply(reply, 7);
+						break;
+#endif
+				}
+				break;
 			default: ;
 				length = create_modbus_error(reply, ILLEGAL_FUNCTION);
 				send_reply(reply, length);
@@ -130,6 +188,11 @@ void do_act() {
 }
 
 void send_reply(unsigned char * data, uint8_t length) {
+#ifdef DIAGNOSTICS_LISTEN_ONLY_MODE
+	if (rs485_state.listen_only == 1) {
+		return;
+	}
+#endif
 	cli();
 	data[0] = localModbusAddress;
 	uint16_t crc = doModbusCRC16(data, length - 2);
@@ -153,6 +216,9 @@ uint16_t get_modbus_b(unsigned char* data) {
 }
 
 uint8_t create_modbus_error(unsigned char* buffer, uint8_t error) {
+#ifdef DIAGNOSTICS_STATISTICS
+	bus_exception_error_count++;
+#endif
 	buffer[1] |= 0x80;
 	buffer[2] = error;
 	return 5;
@@ -163,4 +229,8 @@ void write_holding_register_int(uint16_t addr, uint16_t val) {
 }
 uint16_t read_holding_register_int(uint16_t addr) {
 	return holding_registers[addr];
+}
+
+void allow_addr_change() {
+	rs485_state.allow_addr_change = 1;
 }
