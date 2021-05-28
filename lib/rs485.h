@@ -1,6 +1,8 @@
 #ifndef RS485_H_
 #define RS485_H_
 
+#include "../board.h"
+
 // supported messages are read holding register (3) and write single register (6)
 enum MODBUS_FUNCTION {
 	READ_COILS = 0x01,
@@ -60,5 +62,9 @@ void do_act();
 void memcpy_and_swap(unsigned char* to, const unsigned char* from, uint8_t length);
 void write_holding_register_int(uint16_t addr, uint16_t val);
 uint16_t read_holding_register_int(uint16_t addr);
+#ifdef DIAGNOSTICS_SET_ADDRESS
+void toggle_allow_addr_change();
+unsigned char does_allow_addr_change();
+#endif
 
 #endif /* RS485_H_ */

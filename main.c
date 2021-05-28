@@ -65,17 +65,28 @@ void toggle_relay() {
 ISR(PORTA_PORT_vect) {
 	// soft debounce
 	_delay_ms(10);
-	if (PORTA.INTFLAGS & PIN_BTNA && node_state.first_button_ignore == 1) {
-		toggle_relay();
+#ifdef DIAGNOSTICS_SET_ADDRESS
+	uint16_t rtc_start = RTC.CNT;
+#endif
+	if (PORTA.IN & PIN_BTNA && node_state.first_button_ignore == 1) {
+#ifdef DIAGNOSTICS_SET_ADDRESS
+		while (PORTA.IN & PIN_BTNA == 1); // wait for delay
+		if (RTC.CNT - rtc_start > 5) {
+			toggle_allow_addr_change();
+		} else {
+#endif
+			toggle_relay();
+#ifdef DIAGNOSTICS_SET_ADDRESS
+		}
+#endif
+		PORTA.INTFLAGS |= PIN_BTNA;
 	}
-
-	PORTA.INTFLAGS = 0xFF;
 
 	node_state.first_button_ignore = 1;
 }
 
 uint8_t process_write_holding_register(volatile uint16_t holding_register[], uint16_t reg, uint16_t newValue) {
-	if (reg == 1) {
+	if (reg == REGISTER_ISLIGHTON) {
 		if (newValue != holding_register[REGISTER_ISLIGHTON]) {
 			toggle_relay();
 		}
@@ -91,18 +102,24 @@ int main(void)
 	CLKCTRL.MCLKCTRLA = 0x00;
 	CCP = CCP_IOREG_gc;
 	CLKCTRL.MCLKCTRLB = 0x00;
+
+	// set pins
 	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
-	PORTA.DIRCLR = PIN_BTNA | PIN_BTNB;
-
+	PORTA.DIRCLR = PIN_BTNA/* | PIN_BTNB*/;
 	PORTA.PINCTRL_BTNA = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
-	PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;
+	/*PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;*/ // we do not enable BTNB in final product, only one button is soldered
 
-	// read bus address from eeprom
-	
+#ifdef DIAGNOSTICS_SET_ADDRESS
+	// set up RTC, twice a second
+	RTC.CTRLA = RTC_PRESCALER_DIV16384_gc | RTC_RTCEN_bm;
+#endif
+
+	// init app state
 	node_state.first_button_ignore = 0;
 	node_state.relay_last_toggle = RELAY_LAST_UNKNOWN;
  
-	// init other stuff
+	
+	// read bus address from eeprom
 	init_rs485(&process_write_holding_register);	
 	
 	// init ADC
@@ -120,17 +137,26 @@ int main(void)
 	while(1) {
 
 		do_act();
-
+#ifdef PIN_LED_RELAY
 		if (node_state.relay_last_toggle == RELAY_LAST_RESET) {
-			PORTA.OUTCLR = PIN_LEDA;
+			PORTA.OUTCLR = PIN_LED_RELAY;
 		} else if (node_state.relay_last_toggle == RELAY_LAST_SET) {
-			PORTA.OUTSET = PIN_LEDA;
+			PORTA.OUTSET = PIN_LED_RELAY;
 		}
+#endif
+
+#ifdef PIN_LED_SETUP_MODE
+		if (does_allow_addr_change()) {
+			PORTA.OUTSET = PIN_LED_SETUP_MODE;
+		} else {
+			PORTA.OUTCLR = PIN_LED_SETUP_MODE;
+		}
+#endif
 
 		if (read_holding_register_int(REGISTER_ISLIGHTON) == LIGHT_ON) {
-			PORTA.OUTSET = PIN_LEDB;
+			PORTA.OUTSET = PIN_LIGHT_IS_ON;
 		} else {
-			PORTA.OUTCLR = PIN_LEDB;
+			PORTA.OUTCLR = PIN_LIGHT_IS_ON;
 		}
 	}
 }

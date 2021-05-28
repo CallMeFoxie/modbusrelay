@@ -144,9 +144,9 @@ void do_act() {
 #ifdef DIAGNOSTICS_SET_ADDRESS
 					case SET_DEVICE_ADDRESS: ;
 						if (rs485_state.allow_addr_change) {
-							eeprom_write_byte(EEPROM_ADDRESS_RS485_SLAVEID, b & 0xFF);
+							eeprom_write_byte(EEPROM_ADDRESS_RS485_SLAVEID, msg[4]);
 							send_reply(msg, 7);
-							localModbusAddress = b & 0xFF;
+							localModbusAddress = msg[4];
 							rs485_state.allow_addr_change = 0;
 						}
 						break;
@@ -231,6 +231,12 @@ uint16_t read_holding_register_int(uint16_t addr) {
 	return holding_registers[addr];
 }
 
-void allow_addr_change() {
-	rs485_state.allow_addr_change = 1;
+#ifdef DIAGNOSTICS_SET_ADDRESS
+void toggle_allow_addr_change() {
+	rs485_state.allow_addr_change != rs485_state.allow_addr_change;
 }
+
+unsigned char does_allow_addr_change() {
+	return rs485_state.allow_addr_change;
+}
+#endif
