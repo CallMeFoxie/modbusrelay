@@ -29,11 +29,11 @@ uint16_t bus_message_count, bus_exception_error_count, server_message_count;
 #endif
 
 ISR(TCA0_CMP0_vect) {
-	if (modbusReceivingOffset == MODBUS_MAX_MSG_LENGTH && receivingModbusMessage[0] == localModbusAddress) {
+	if (modbusReceivingOffset > 3 && receivingModbusMessage[0] == localModbusAddress) {
 #ifdef DIAGNOSTICS_STATISTICS
 		server_message_count++;
 #endif
-		memcpy(lastModbusMessage, receivingModbusMessage, MODBUS_MAX_MSG_LENGTH);
+		memcpy(lastModbusMessage, receivingModbusMessage, modbusReceivingOffset);
 		messageRead = 0;
 	}
 #ifdef DIAGNOSTICS_STATISTICS

@@ -65,12 +65,12 @@ void toggle_relay() {
 ISR(PORTA_PORT_vect) {
 	// soft debounce
 	_delay_ms(10);
+	if ((PORTA.IN & PIN_BTNA) == 0 && node_state.first_button_ignore == 1) {
 #ifdef DIAGNOSTICS_SET_ADDRESS
-	uint16_t rtc_start = RTC.CNT;
-#endif
-	if (PORTA.IN & PIN_BTNA && node_state.first_button_ignore == 1) {
-#ifdef DIAGNOSTICS_SET_ADDRESS
-		while (PORTA.IN & PIN_BTNA == 1); // wait for delay
+		uint16_t rtc_start = RTC.CNT;
+		PORTA.OUTTGL |= PIN_LEDA;
+		while (PORTA.IN & PIN_BTNA == 0); // wait for delay	
+		//PORTA.OUTTGL |= PIN_LEDA;
 		if (RTC.CNT - rtc_start > 5) {
 			toggle_allow_addr_change();
 		} else {
@@ -79,6 +79,9 @@ ISR(PORTA_PORT_vect) {
 #ifdef DIAGNOSTICS_SET_ADDRESS
 		}
 #endif
+	}
+
+	if (PORTA.INTFLAGS & PIN_BTNA) {
 		PORTA.INTFLAGS |= PIN_BTNA;
 	}
 
@@ -106,7 +109,7 @@ int main(void)
 	// set pins
 	PORTA.DIRSET = PIN_LEDA | PIN_LEDB | PIN_RELS | PIN_RELR;
 	PORTA.DIRCLR = PIN_BTNA/* | PIN_BTNB*/;
-	PORTA.PINCTRL_BTNA = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
+	PORTA.PINCTRL_BTNA = /*PORT_INVEN_bm | */PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc; // enable pullup + sense falling edge
 	/*PORTA.PINCTRL_BTNB = PORT_INVEN_bm | PORT_PULLUPEN_bm | PORT_ISC_FALLING_gc;*/ // we do not enable BTNB in final product, only one button is soldered
 
 #ifdef DIAGNOSTICS_SET_ADDRESS
