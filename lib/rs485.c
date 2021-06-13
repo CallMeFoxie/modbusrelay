@@ -29,7 +29,7 @@ uint16_t bus_message_count, bus_exception_error_count, server_message_count;
 #endif
 
 ISR(TCA0_CMP0_vect) {
-	if (/*modbusReceivingOffset == MODBUS_MAX_MSG_LENGTH &&*/ receivingModbusMessage[0] == localModbusAddress) {
+	if (modbusReceivingOffset == MODBUS_MAX_MSG_LENGTH && receivingModbusMessage[0] == localModbusAddress) {
 #ifdef DIAGNOSTICS_STATISTICS
 		server_message_count++;
 #endif
@@ -48,11 +48,11 @@ ISR(USART0_RXC_vect) {
 	USART0.STATUS |= USART_RXCIF_bm;
 	TCA0.SINGLE.CTRLESET = TCA_SINGLE_CMD_RESTART_gc;
 	unsigned char received = receive_char();
+	if (modbusReceivingOffset >= MODBUS_MAX_MSG_LENGTH)
+		return;
+		
 	if (modbusReceivingOffset < 255)
 		modbusReceivingOffset++;
-
-	if (modbusReceivingOffset > MODBUS_MAX_MSG_LENGTH)
-		return;
 	
 	receivingModbusMessage[modbusReceivingOffset - 1] = received;
 }
