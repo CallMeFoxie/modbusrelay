@@ -6,9 +6,9 @@ ifneq ($(origin PACK_PATH),undefined)
 	CFLAGS+=-B $(PACK_PATH)
 endif
 
-.PHONY: app.elf
+.PHONY: relayboard.elf
 
-default: app.elf
+default: relayboard.elf
 
 lib/uart.o: lib/uart.c lib/uart.c
 	$(CC) -C -o lib/uart.o -c lib/uart.c $(CFLAGS)
@@ -16,17 +16,17 @@ lib/uart.o: lib/uart.c lib/uart.c
 lib/rs485.o: lib/rs485.c lib/rs485.h lib/uart.h board.h
 	$(CC) -C -o lib/rs485.o -c lib/rs485.c $(CFLAGS)
 
-main.o: main.c lib/rs485.h lib/uart.h board.h
-	$(CC) -C -o main.o -c main.c $(CFLAGS)
+boards/relayboard.o: boards/relayboard.c lib/rs485.h lib/uart.h board.h
+	$(CC) -C -o boards/relayboard.o -c boards/relayboard.c $(CFLAGS)
 
-app.elf: lib/uart.o lib/rs485.o main.o
-	$(CC) -o app.elf lib/uart.o lib/rs485.o main.o $(LDFLAGS)
-	avr-size  --format=avr app.elf
+relayboard.elf: lib/uart.o lib/rs485.o boards/relayboard.o
+	$(CC) -o relayboard.elf lib/uart.o lib/rs485.o boards/relayboard.o $(LDFLAGS)
+	avr-size  --format=avr relayboard.elf
 
-flash.hex: app.elf
+relayboard.hex: relayboard.elf
 	$(OBJCOPY) -O ihex app.elf flash.hex
 
-do-flash: flash.hex
+do-flash-relayboard: relayboard.hex
 	pyupdi -d attiny414 -c $(PORT) -f flash.hex
 
 do-erase:
@@ -35,8 +35,8 @@ do-erase:
 do-reset:
 	pyupdi -d attiny414 -c $(PORT) -r
 
-do-disassemble: app.elf
-	avr-objdump -d app.elf
+do-disassemble-relayboard: relayboard.elf
+	avr-objdump -d relayboard.elf
 
 clean:
-	rm -rf lib/*.o *.o *.elf *.hex
+	rm -rf lib/*.o boards/*.o *.o *.elf *.hex

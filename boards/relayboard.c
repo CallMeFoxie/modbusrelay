@@ -3,9 +3,9 @@
 #include <util/delay.h>
 #include <avr/eeprom.h>
 #include <string.h>
-#include "lib/rs485.h"
-#include "lib/uart.h"
-#include "board.h"
+#include "../lib/rs485.h"
+#include "../lib/uart.h"
+#include "../board.h"
 
 #define LIGHT_ON 1
 #define LIGHT_OFF 0
